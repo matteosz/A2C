@@ -1,64 +1,116 @@
-import json
-from actor import Actor
-from critic import Critic
 import torch
+import numpy as np
 from torch import nn, optim
 
-def load_hyperparameters(filename='hyperparams.json'):
-    with open(filename, 'r') as f:
-        return json.load(f)
-    
-HYPERPARAMS = load_hyperparameters()
+ACTOR_LR = 1e-5
+CRITIC_LR = 1e-3
+GAMMA = 0.99
+LAM = 0.95
+ENT_COEF = 0.01
 DEVICE = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
-class A2C():
-    def __init__(self, input_size, output_size, hidden_size=64, activation=nn.Tanh):
+# Code inspired from Gymnasium tutorial https://gymnasium.farama.org/tutorials/gymnasium_basics/vector_envs_tutorial/
+class A2C(nn.Module):
+    def __init__(self, 
+        input_size, 
+        output_size, 
+        k,
+        hidden_size=64, 
+        activation=nn.Tanh,
+        actor_lr=ACTOR_LR,
+        critic_lr=CRITIC_LR,
+        gamma=GAMMA,
+        lam=LAM,
+        ent_coef=ENT_COEF
+    ) -> None:
+        super(A2C, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
+        self.k = k
         self.hidden_size = hidden_size
         self.activation = activation
 
-        self.actor = Actor(input_size, output_size, hidden_size, activation)
-        self.critic = Critic(input_size, 1, hidden_size, activation)
+        critic_layers = [
+            nn.Linear(input_size, hidden_size),
+            activation(),
+            nn.Linear(hidden_size, hidden_size),
+            activation(),
+            nn.Linear(hidden_size, 1),
+        ]
 
-        self.actor.to(DEVICE)
-        self.critic.to(DEVICE)
+        actor_layers = [
+            nn.Linear(input_size, hidden_size),
+            activation(),
+            nn.Linear(hidden_size, hidden_size),
+            activation(),
+            nn.Linear(
+                hidden_size, output_size
+            ),  # estimate action logits (will be fed into a softmax later)
+        ]
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=HYPERPARAMS['actor_lr'])
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=HYPERPARAMS['critic_lr'])
-        self.gamma = HYPERPARAMS['gamma']
+        # define actor and critic networks
+        self.critic = nn.Sequential(*critic_layers).to(DEVICE)
+        self.actor = nn.Sequential(*actor_layers).to(DEVICE)
 
-    def __copy__(self):
-        new_model = A2C(self.input_size, self.output_size, self.hidden_size, self.activation)
-        new_model.actor.load_state_dict(self.actor.state_dict())
-        new_model.critic.load_state_dict(self.critic.state_dict())
-        return new_model
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
+        self.gamma = gamma
+        self.lam = lam
+        self.ent_coef = ent_coef
 
-    def __get_action_probs(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(DEVICE)
-        return self.actor(state)
+    def forward(self, x: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
+        x = torch.Tensor(x).to(DEVICE)
+        state_values = self.critic(x)
+        action_probs = self.actor(x)
+        return state_values, action_probs
 
-    def sample_action(self, state):
-        return torch.multinomial(self.__get_action_probs(state).detach(), 1).item()
+    def select_action(
+        self, x: np.ndarray
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        state_values, action_logits = self.forward(x)
+        action_pd = torch.distributions.Categorical(logits=action_logits)
+        actions = action_pd.sample()
+        action_log_probs = action_pd.log_prob(actions)
+
+        return actions, action_log_probs, state_values, action_pd.entropy()
     
-    def get_best_action(self, state):
-        return torch.argmax(self.__get_action_probs(state).detach()).item()
+    def select_best_action(self, x: np.ndarray) -> int:
+        _, action_logits = self.forward(x)
+        return torch.argmax(action_logits, dim=1).detach().item()
     
-    def get_reward(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(DEVICE)
-        return self.critic(state)
+    def get_value(self, x: np.ndarray) -> float:
+        x = torch.Tensor(x).to(DEVICE)
+        return self.critic(x).detach().item()
 
-    def update_step(self, state, action, discount_reward):
-        self.actor_optimizer.zero_grad()
+    def get_losses(
+        self,
+        rewards: torch.Tensor,
+        action_log_probs: torch.Tensor,
+        value_preds: torch.Tensor,
+        entropy: torch.Tensor,
+        masks: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        T = len(rewards)
+        advantages = torch.zeros(T, self.k, device=DEVICE, requires_grad=True)
+
+        gae = .0
+        for t in reversed(range(T - 1)):
+            td_error = rewards[t] + self.gamma * masks[t] * value_preds[t + 1] - value_preds[t]
+            gae = td_error + self.gamma * self.lam * masks[t] * gae
+            advantages[t] = gae
+
+        critic_loss = advantages.pow(2).mean()
+        actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
+
+        return critic_loss, actor_loss
+
+    def update_parameters(
+        self, critic_loss: torch.Tensor, actor_loss: torch.Tensor
+    ) -> None:
         self.critic_optimizer.zero_grad()
-
-        actor_loss = torch.log(self.__get_action_probs(state)[action]) * (self.get_reward(state) - discount_reward)
-        critic_loss = (discount_reward - self.get_reward(state)) ** 2
-        
-        actor_loss.backward(retain_graph=True)
         critic_loss.backward()
-
-        self.actor_optimizer.step()
         self.critic_optimizer.step()
-        
-        return actor_loss.detach().item(), critic_loss.detach().item()
+
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
