@@ -11,6 +11,7 @@ EVAL_STEPS = int(2e4)
 LOG_STEPS = int(1e3)
 EVAL_EPISODES = 10
 
+gym.logger.set_level(40)
 writer = SummaryWriter()
 
 def evaluate(model, step, render=True):
@@ -31,7 +32,7 @@ def evaluate(model, step, render=True):
                 env.render()
 
                 if i == EVAL_EPISODES - 1:
-                    values.append(model.get_value(state))
+                    values.append(model.get_value(state).detach().item())
 
     env.close()
     mean_value = episode_rewards / EVAL_EPISODES
@@ -47,7 +48,7 @@ def a2c(k=1, n=1, seed=42):
     critic_losses, actor_losses, entropies = [], [], []
     total_steps = 0
 
-    envs = gym.make_vec(ENV_NAME, num_envs=k)
+    envs = gym.vector.make(ENV_NAME, num_envs=k)
     num_actions, num_states = envs.single_action_space.n, envs.single_observation_space.shape[0]
     model = A2C(input_size=num_states, output_size=num_actions, k=k)
     envs_wrapper = gym.wrappers.RecordEpisodeStatistics(envs, deque_size=k*n_updates)
@@ -70,7 +71,7 @@ def a2c(k=1, n=1, seed=42):
             # Mask to deal with finished trajectories (both terminated and truncated)
             masks[step] = torch.tensor([not (term or trunc) for term, trunc in zip(terminated, truncated)], device=DEVICE)
             
-        critic_loss, actor_loss = model.get_losses(ep_rewards, ep_action_log_probs, ep_value_preds, entropy, masks)
+        critic_loss, actor_loss = model.get_losses(ep_rewards, states, ep_action_log_probs, ep_value_preds, entropy, masks)
         model.update_parameters(critic_loss, actor_loss)
 
         critic_losses.append(critic_loss.item())

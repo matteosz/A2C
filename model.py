@@ -20,7 +20,6 @@ class A2C(nn.Module):
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR,
         gamma=GAMMA,
-        lam=LAM,
         ent_coef=ENT_COEF
     ) -> None:
         super(A2C, self).__init__()
@@ -55,14 +54,13 @@ class A2C(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
         self.gamma = gamma
-        self.lam = lam
         self.ent_coef = ent_coef
 
     def forward(self, x: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
         x = torch.Tensor(x).to(DEVICE)
         state_values = self.critic(x)
-        action_probs = self.actor(x)
-        return state_values, action_probs
+        action_logits = self.actor(x)
+        return state_values, action_logits
 
     def select_action(
         self, x: np.ndarray
@@ -78,26 +76,31 @@ class A2C(nn.Module):
         _, action_logits = self.forward(x)
         return torch.argmax(action_logits, dim=1).detach().item()
     
-    def get_value(self, x: np.ndarray) -> float:
+    def get_value(self, x: np.ndarray) -> torch.Tensor:
         x = torch.Tensor(x).to(DEVICE)
-        return self.critic(x).detach().item()
+        return self.critic(x)
 
     def get_losses(
         self,
         rewards: torch.Tensor,
+        last_states: torch.Tensor,
         action_log_probs: torch.Tensor,
         value_preds: torch.Tensor,
         entropy: torch.Tensor,
         masks: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        T = len(rewards)
-        advantages = torch.zeros(T, self.k, device=DEVICE, requires_grad=True)
+        n = len(rewards)
+        advantages = torch.zeros(n, self.k, device=DEVICE)
+        discount_rewards = torch.zeros(self.k, device=DEVICE)
 
-        gae = .0
-        for t in reversed(range(T - 1)):
-            td_error = rewards[t] + self.gamma * masks[t] * value_preds[t + 1] - value_preds[t]
-            gae = td_error + self.gamma * self.lam * masks[t] * gae
-            advantages[t] = gae
+        for t in range(n):
+            mask = masks[t-1] if t > 1 else torch.ones(self.k, device=DEVICE)
+            discount_rewards += mask * self.gamma ** t * rewards[t]
+        last_value_preds = self.get_value(last_states).squeeze()
+        max_t = torch.argmax(masks, dim=0) + 1
+        discount_rewards += masks[-1] * self.gamma ** max_t * last_value_preds
+
+        advantages = discount_rewards - value_preds
 
         critic_loss = advantages.pow(2).mean()
         actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
