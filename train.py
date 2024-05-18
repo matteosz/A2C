@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from tqdm import tqdm
+import random
 from torch.utils.tensorboard import SummaryWriter
 import gymnasium as gym
 from model import A2C, DEVICE
@@ -11,8 +12,13 @@ EVAL_STEPS = int(2e4)
 LOG_STEPS = int(1e3)
 EVAL_EPISODES = 10
 
-gym.logger.set_level(40)
+gym.logger.set_level(40) # silence warnings
 writer = SummaryWriter()
+
+def set_seed(agent):
+    torch.manual_seed(agent)
+    np.random.seed(agent)
+    random.seed(agent)
 
 def evaluate(model, step, render=True):
     env = gym.make(ENV_NAME, render_mode='human' if render else None)
@@ -50,7 +56,7 @@ def a2c(k=1, n=1, seed=42):
 
     envs = gym.vector.make(ENV_NAME, num_envs=k)
     num_actions, num_states = envs.single_action_space.n, envs.single_observation_space.shape[0]
-    model = A2C(input_size=num_states, output_size=num_actions, k=k)
+    model = A2C(num_states, num_actions, k, n)
     envs_wrapper = gym.wrappers.RecordEpisodeStatistics(envs, deque_size=k*n_updates)
 
     states, _ = envs_wrapper.reset(seed=seed)
@@ -71,7 +77,8 @@ def a2c(k=1, n=1, seed=42):
             # Mask to deal with finished trajectories (both terminated and truncated)
             masks[step] = torch.tensor([not (term or trunc) for term, trunc in zip(terminated, truncated)], device=DEVICE)
             
-        critic_loss, actor_loss = model.get_losses(ep_rewards, states, ep_action_log_probs, ep_value_preds, entropy, masks)
+        discount_rewards = model.get_discounted_r(ep_rewards, masks, states)
+        critic_loss, actor_loss = model.get_losses(discount_rewards, ep_action_log_probs, ep_value_preds, entropy)
         model.update_parameters(critic_loss, actor_loss)
 
         critic_losses.append(critic_loss.item())
@@ -80,6 +87,7 @@ def a2c(k=1, n=1, seed=42):
 
         total_steps += n
 
+        # Logging and evaluation
         if total_steps % LOG_STEPS == 0:
             print(f'Step: {total_steps}, Critic Loss: {np.mean(critic_losses)}, Actor Loss: {np.mean(actor_losses)}, Entropy: {np.mean(entropies)}')
             writer.add_scalar('Train/Loss/Critic', np.mean(critic_losses), total_steps)
@@ -93,9 +101,7 @@ def a2c(k=1, n=1, seed=42):
         if total_steps % EVAL_STEPS == 0:
             evaluate(model, total_steps)
 
-def set_seed(agent):
-    torch.manual_seed(agent)
-    np.random.seed(agent)
+    envs_wrapper.close()
 
 if __name__ == '__main__':
     for seed in [2, 42, 242]:
