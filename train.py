@@ -131,6 +131,7 @@ def a2c(k=1, n=1, seed=42):
         ep_action_log_probs = torch.zeros(n, k, device=DEVICE)
         masks_end_of_ep = torch.zeros(n, k, device=DEVICE)
         masks_bootstrap_values = torch.zeros(n, k, device=DEVICE)
+        mask_is_terminated = torch.zeros(n, k, device=DEVICE)
 
         for i in range(n):
             masks_end_of_ep[i] = torch.tensor([i+1 for j in range(k)], device=DEVICE)
@@ -150,7 +151,9 @@ def a2c(k=1, n=1, seed=42):
                         masks_end_of_ep[step][i] = step
                     if trunc:
                         estimated_value = model.get_value(states[i])
-                        masks_bootstrap_values[step][i]  = estimated_value
+                        masks_bootstrap_values[step][i] = estimated_value
+                    if term:
+                        mask_is_terminated[step][i] = 1
 
             #gym vectorized environments automatically reset environments when envs are in done state
             #cf p.24 https://gym-docs.readthedocs.io/_/downloads/en/feature-branch/pdf/
@@ -163,8 +166,16 @@ def a2c(k=1, n=1, seed=42):
         estimated_values = model.get_value(states).squeeze()
         masks_bootstrap_values[n-1]  = estimated_values
 
-        discount_rewards = model.get_discounted_r(ep_rewards, masks_end_of_ep, masks_bootstrap_values)
+        discount_rewards = model.get_discounted_r(ep_rewards, masks_end_of_ep, masks_bootstrap_values, mask_is_terminated)
         critic_loss, actor_loss = model.get_losses(discount_rewards, ep_action_log_probs, ep_value_preds, entropy)
+        
+        '''
+        print("estimated values")
+        print(estimated_values)
+        print("ep value preds")
+        print(ep_value_preds)
+        '''
+
         model.update_parameters(critic_loss, actor_loss)
 
         critic_losses.append(critic_loss.item())
