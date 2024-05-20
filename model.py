@@ -147,11 +147,55 @@ class A2C(nn.Module):
     def get_discounted_r(
         self, 
         rewards: torch.Tensor,
-        masks: torch.Tensor, 
-        last_states: torch.Tensor
+        masks_end_of_ep: torch.Tensor,
+        masks_bootstrap_values: torch.Tensor
     ) -> torch.Tensor:
-        discount_rewards = torch.zeros(self.k, device=DEVICE)
+        
+        discount_rewards = torch.zeros(self.n, self.k, device=DEVICE)
 
+        acc = 0
+
+        for t in reversed(range(self.n)):
+            t_tens = torch.tensor([t for i in range(self.k)])
+            acc = self.gamma * acc * (masks_end_of_ep[t] - t_tens)
+            acc = acc + self.gamma * masks_bootstrap_values[t]
+            acc = rewards[t] + acc
+            discount_rewards[t] = acc
+        
+        '''
+        discount_rewards = torch.zeros(self.n, self.k, device=DEVICE)
+
+        acc = 0
+        print("rewards")
+        print(rewards)
+        print("masks_end_of_ep")
+        print(masks_end_of_ep)
+        print("masks_bootstrap_values")
+        print(masks_bootstrap_values)
+
+        for t in reversed(range(self.n)):
+            t_tens = torch.tensor([t for i in range(self.k)])
+            print("t_tens")
+            print(t_tens)
+            print("acc before")
+            print(acc)
+            print("masks_end_of_ep[t]")
+            print(masks_end_of_ep[t])
+            acc = self.gamma * acc * (masks_end_of_ep[t] - t_tens)
+            acc = acc + self.gamma * masks_bootstrap_values[t]
+            acc = rewards[t] + acc
+            print("acc after")
+            print(acc)
+            discount_rewards[t] = acc
+            print("discount_rewards[t]")
+            print(discount_rewards[t])
+            
+            print()
+            print()
+
+        print("============================")
+        '''
+        '''
         # Calculate the discounted rewards
         # R = Σ γ^t * r_t + γ^T * V(S_T)
         for t in range(self.n):
@@ -162,8 +206,8 @@ class A2C(nn.Module):
         max_t = torch.argmax(masks, dim=0) + 1
         # Account for the last state value
         last_value_preds = self.get_value(last_states).squeeze()
-        discount_rewards += masks[-1] * self.gamma ** max_t * last_value_preds
-
+        discount_rewards += masks_trunc[-1] * self.gamma ** max_t * last_value_preds
+        '''
         return discount_rewards
 
     '''
@@ -186,8 +230,18 @@ class A2C(nn.Module):
         value_preds: torch.Tensor,
         entropy: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-
         advantages = discount_rewards - value_preds
+
+        '''
+        print("disc rewards")
+        print(discount_rewards)
+        print("value preds")
+        print(value_preds)
+        print("advantages")
+        print(advantages)
+        print()
+        print()
+        '''
 
         critic_loss = advantages.pow(2).mean()
         actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
