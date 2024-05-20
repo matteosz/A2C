@@ -10,13 +10,15 @@ import os
 import copy
 
 ENV_NAME = 'CartPole-v1'
-#MAX_STEPS = int(5e5)
-#EVAL_STEPS = int(2e4)
-#LOG_STEPS = int(1e3)
-MAX_STEPS = 5000
-EVAL_STEPS = 1000
-LOG_STEPS = 500
+MAX_STEPS = int(5e5)
+EVAL_STEPS = int(2e4)
+LOG_STEPS = int(1e3)
+#MAX_STEPS = 5000
+#EVAL_STEPS = 1000
+#LOG_STEPS = 500
 EVAL_EPISODES = 10
+
+TAKE_TRUNCATION_INTO_ACCOUNT = True
 
 gym.logger.set_level(40) # silence warnings
 writer = SummaryWriter()
@@ -127,7 +129,11 @@ def a2c(k=1, n=1, seed=42):
         ep_value_preds = torch.zeros(n, k, device=DEVICE)
         ep_rewards = torch.zeros(n, k, device=DEVICE)
         ep_action_log_probs = torch.zeros(n, k, device=DEVICE)
-        masks = torch.zeros(n, k, device=DEVICE)
+        masks_end_of_ep = torch.zeros(n, k, device=DEVICE)
+        masks_bootstrap_values = torch.zeros(n, k, device=DEVICE)
+
+        for i in range(n):
+            masks_end_of_ep[i] = torch.tensor([i+1 for j in range(k)], device=DEVICE)
 
         # Collect data
         for step in range(n):
@@ -137,15 +143,27 @@ def a2c(k=1, n=1, seed=42):
             ep_value_preds[step] = state_value_preds.squeeze()
             ep_rewards[step] = torch.tensor(rewards, device=DEVICE, requires_grad=True)
             ep_action_log_probs[step] = action_log_probs
-            # Mask to deal with finished trajectories (both terminated and truncated)
-            masks[step] = torch.tensor([not (term or trunc) for term, trunc in zip(terminated, truncated)], device=DEVICE)
+            
+            if TAKE_TRUNCATION_INTO_ACCOUNT:
+                for (i, (term, trunc)) in enumerate(zip(terminated, truncated)):
+                    if term or trunc:
+                        masks_end_of_ep[step][i] = step
+                    if trunc:
+                        estimated_value = model.get_value(states[i])
+                        masks_bootstrap_values[step][i]  = estimated_value
 
             #gym vectorized environments automatically reset environments when envs are in done state
             #cf p.24 https://gym-docs.readthedocs.io/_/downloads/en/feature-branch/pdf/
             #testing showed using wrapper wrappers.RecordEpisodeStatistics does not effect this behaviour
             #therefore, no need to manually reset environments in terminated or truncated states
-            
-        discount_rewards = model.get_discounted_r(ep_rewards, masks, states)
+
+        for i in range(k):
+            masks_end_of_ep[n-1][i] = n-1
+        
+        estimated_values = model.get_value(states).squeeze()
+        masks_bootstrap_values[n-1]  = estimated_values
+
+        discount_rewards = model.get_discounted_r(ep_rewards, masks_end_of_ep, masks_bootstrap_values)
         critic_loss, actor_loss = model.get_losses(discount_rewards, ep_action_log_probs, ep_value_preds, entropy)
         model.update_parameters(critic_loss, actor_loss)
 
@@ -167,7 +185,7 @@ def a2c(k=1, n=1, seed=42):
                 avg_reward = np.array(envs_wrapper.return_queue).mean()
             else:
                 avg_reward = np.array(envs_wrapper.return_queue)[-k:].mean()
-
+                
             print(f'Step: {total_steps}, Average reward: {avg_reward}')
             writer.add_scalar('Train/Average_Reward', avg_reward, total_steps)
 
@@ -251,7 +269,7 @@ if __name__ == '__main__':
     for seed in [2, 42, 242]:
         eval_info[0] = seed
         set_seed(seed)
-        a2c(k=2, n= 4, seed=seed)
+        a2c(k=1, n= 1, seed=seed)
         #break # Remove break after testing
     writer.close()
     create_plots()
