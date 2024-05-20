@@ -186,6 +186,7 @@ class A2C(nn.Module):
         value_preds: torch.Tensor,
         entropy: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+
         advantages = discount_rewards - value_preds
 
         critic_loss = advantages.pow(2).mean()

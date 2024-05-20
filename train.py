@@ -13,9 +13,9 @@ ENV_NAME = 'CartPole-v1'
 #MAX_STEPS = int(5e5)
 #EVAL_STEPS = int(2e4)
 #LOG_STEPS = int(1e3)
-MAX_STEPS = 50000
-EVAL_STEPS = 10000
-LOG_STEPS = 5000
+MAX_STEPS = 5000
+EVAL_STEPS = 1000
+LOG_STEPS = 500
 EVAL_EPISODES = 10
 
 gym.logger.set_level(40) # silence warnings
@@ -162,7 +162,12 @@ def a2c(k=1, n=1, seed=42):
             writer.add_scalar('Train/Loss/Actor', np.mean(actor_losses), total_steps)
             writer.add_scalar('Train/Loss/Entropy', np.mean(entropies), total_steps)
 
-            avg_reward = np.array(envs_wrapper.return_queue).mean()
+            avg_reward = 0
+            if len(np.array(envs_wrapper.return_queue)) <k:
+                avg_reward = np.array(envs_wrapper.return_queue).mean()
+            else:
+                avg_reward = np.array(envs_wrapper.return_queue)[-k:].mean()
+
             print(f'Step: {total_steps}, Average reward: {avg_reward}')
             writer.add_scalar('Train/Average_Reward', avg_reward, total_steps)
 
@@ -203,9 +208,14 @@ def a2c(k=1, n=1, seed=42):
 def create_one_plot(x_vals, data_seed_1, data_seed_2, data_seed_3, title, label, ylabel, path):
     plt.figure(figsize=(10, 6))
 
+    min_values = [min(a, b, c) for a, b, c in zip(data_seed_1, data_seed_2, data_seed_3)]
+    max_values = [max(a, b, c) for a, b, c in zip(data_seed_1, data_seed_2, data_seed_3)]
+    avg_values = [(a + b + c) / 3 for a, b, c in zip(data_seed_1, data_seed_2, data_seed_3)]
+
     plt.plot(x_vals, data_seed_1, label=label+' (seed 2)', marker='o')
     plt.plot(x_vals, data_seed_2, label=label+' (seed 42)', marker='s')
     plt.plot(x_vals, data_seed_3, label=label+' (seed 242)', marker='^')
+    plt.plot(x_vals, avg_values, label=label+' (average)', marker='x')
 
     plt.title(title)
     plt.xlabel('Steps')
@@ -213,8 +223,8 @@ def create_one_plot(x_vals, data_seed_1, data_seed_2, data_seed_3, title, label,
 
     plt.legend()
 
-    plt.fill_between(x_vals, data_seed_1, data_seed_2, color='gray')
-    plt.fill_between(x_vals, data_seed_1, data_seed_3, color='gray')
+    plt.fill_between(x_vals, avg_values, min_values, color='gray', alpha = 0.3)
+    plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha = 0.3)
 
     plt.savefig(path)
     plt.close()
@@ -241,7 +251,7 @@ if __name__ == '__main__':
     for seed in [2, 42, 242]:
         eval_info[0] = seed
         set_seed(seed)
-        a2c(k=1, n= 1, seed=seed)
+        a2c(k=2, n= 4, seed=seed)
         #break # Remove break after testing
     writer.close()
     create_plots()
