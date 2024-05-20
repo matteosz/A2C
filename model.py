@@ -148,17 +148,18 @@ class A2C(nn.Module):
         self, 
         rewards: torch.Tensor,
         masks_end_of_ep: torch.Tensor,
-        masks_bootstrap_values: torch.Tensor
+        masks_bootstrap_values: torch.Tensor,
+        mask_is_terminated: torch.Tensor
     ) -> torch.Tensor:
         
         discount_rewards = torch.zeros(self.n, self.k, device=DEVICE)
 
         acc = 0
-
+        
         for t in reversed(range(self.n)):
             t_tens = torch.tensor([t for i in range(self.k)])
             acc = self.gamma * acc * (masks_end_of_ep[t] - t_tens)
-            acc = acc + self.gamma * masks_bootstrap_values[t]
+            acc = acc + self.gamma * masks_bootstrap_values[t] * (1-mask_is_terminated[t])
             acc = rewards[t] + acc
             discount_rewards[t] = acc
         
@@ -189,6 +190,8 @@ class A2C(nn.Module):
             discount_rewards[t] = acc
             print("discount_rewards[t]")
             print(discount_rewards[t])
+            print("gamma")
+            print(self.gamma)
             
             print()
             print()
