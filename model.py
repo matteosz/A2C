@@ -233,7 +233,9 @@ class A2C(nn.Module):
         value_preds: torch.Tensor,
         entropy: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        advantages = discount_rewards - value_preds
+        #???????????????????????????
+        advantages = discount_rewards.detach() - value_preds
+        #advantages = discount_rewards - value_preds
 
         '''
         print("disc rewards")
@@ -247,7 +249,9 @@ class A2C(nn.Module):
         '''
 
         critic_loss = advantages.pow(2).mean()
-        actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
+        #actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
+        #actor_loss = -(advantages * action_log_probs).mean() - self.ent_coef * entropy.mean()
+        actor_loss = -(advantages.detach() * action_log_probs).mean()
 
         return critic_loss, actor_loss
 
