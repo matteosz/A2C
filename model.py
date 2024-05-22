@@ -7,10 +7,6 @@ from typing import Tuple
 ACTOR_LR = 1e-5
 CRITIC_LR = 1e-3
 GAMMA = 0.99
-LAM = 0.95
-ENT_COEF = 0.01
-
-DEVICE = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
 '''
 Actor network - policy function approximator (π)
@@ -78,7 +74,6 @@ class A2C(nn.Module):
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR,
         gamma=GAMMA,
-        ent_coef=ENT_COEF,
     ) -> None:
         super(A2C, self).__init__()
         self.input_size = input_size
@@ -88,16 +83,15 @@ class A2C(nn.Module):
         self.hidden_size = hidden_size
         self.activation = activation
 
-        self.actor = Actor(input_size, output_size, hidden_size, activation).to(DEVICE)
-        self.critic = Critic(input_size, hidden_size, activation).to(DEVICE)
+        self.actor = Actor(input_size, output_size, hidden_size, activation)
+        self.critic = Critic(input_size, hidden_size, activation)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
         self.gamma = gamma
-        self.ent_coef = ent_coef
 
     def forward(self, x: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = torch.Tensor(x).to(DEVICE)
+        x = torch.Tensor(x)
         state_values = self.critic(x)
         action_logits = self.actor(x)
         return state_values, action_logits
@@ -135,13 +129,13 @@ class A2C(nn.Module):
     '''
     def select_best_action(self, x: np.ndarray) -> int:
         _, action_logits = self.forward(x)
-        return torch.argmax(action_logits).detach().item()
+        return torch.argmax(action_logits).item()
     
     '''
     Forward pass of the critic network
     '''
     def get_value(self, x: np.ndarray) -> torch.Tensor:
-        x = torch.Tensor(x).to(DEVICE)
+        x = torch.Tensor(x)
         return self.critic(x)
 
     def get_discounted_r(
@@ -151,66 +145,14 @@ class A2C(nn.Module):
         masks_bootstrap_values: torch.Tensor,
         mask_is_terminated: torch.Tensor
     ) -> torch.Tensor:
-        
-        discount_rewards = torch.zeros(self.n, self.k, device=DEVICE)
-
-        acc = 0
-        
+        discount_rewards = torch.zeros(self.n, self.k)
+        acc = .0
         for t in reversed(range(self.n)):
-            t_tens = torch.tensor([t for i in range(self.k)])
+            t_tens = torch.tensor([t] * self.k)
             acc = self.gamma * acc * (masks_end_of_ep[t] - t_tens)
-            acc = acc + self.gamma * masks_bootstrap_values[t] * (1-mask_is_terminated[t])
-            acc = rewards[t] + acc
+            acc += self.gamma * masks_bootstrap_values[t] * (1 - mask_is_terminated[t])
+            acc += rewards[t]
             discount_rewards[t] = acc
-        
-        '''
-        discount_rewards = torch.zeros(self.n, self.k, device=DEVICE)
-
-        acc = 0
-        print("rewards")
-        print(rewards)
-        print("masks_end_of_ep")
-        print(masks_end_of_ep)
-        print("masks_bootstrap_values")
-        print(masks_bootstrap_values)
-
-        for t in reversed(range(self.n)):
-            t_tens = torch.tensor([t for i in range(self.k)])
-            print("t_tens")
-            print(t_tens)
-            print("acc before")
-            print(acc)
-            print("masks_end_of_ep[t]")
-            print(masks_end_of_ep[t])
-            acc = self.gamma * acc * (masks_end_of_ep[t] - t_tens)
-            acc = acc + self.gamma * masks_bootstrap_values[t]
-            acc = rewards[t] + acc
-            print("acc after")
-            print(acc)
-            discount_rewards[t] = acc
-            print("discount_rewards[t]")
-            print(discount_rewards[t])
-            print("gamma")
-            print(self.gamma)
-            
-            print()
-            print()
-
-        print("============================")
-        '''
-        '''
-        # Calculate the discounted rewards
-        # R = Σ γ^t * r_t + γ^T * V(S_T)
-        for t in range(self.n):
-            mask = masks[t-1] if t > 1 else torch.ones(self.k, device=DEVICE)
-            discount_rewards += mask * self.gamma ** t * rewards[t]
-
-        # Find where each trajectory ends
-        max_t = torch.argmax(masks, dim=0) + 1
-        # Account for the last state value
-        last_value_preds = self.get_value(last_states).squeeze()
-        discount_rewards += masks_trunc[-1] * self.gamma ** max_t * last_value_preds
-        '''
         return discount_rewards
 
     '''
@@ -221,8 +163,6 @@ class A2C(nn.Module):
         last_states (torch.Tensor): Last states tensor, size=(k, input_size)
         action_log_probs (torch.Tensor): Log of the probabilities of the actions, size=(n, k)
         value_preds (torch.Tensor): Value predictions, size=(n, k)
-        entropy (torch.Tensor): Entropy tensor, size=(n, k)
-        masks (torch.Tensor): Masks tensor, size=(n, k)
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Tuple containing the critic and actor losses
     '''
@@ -231,26 +171,10 @@ class A2C(nn.Module):
         discount_rewards: torch.Tensor,
         action_log_probs: torch.Tensor,
         value_preds: torch.Tensor,
-        entropy: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        #???????????????????????????
         advantages = discount_rewards.detach() - value_preds
-        #advantages = discount_rewards - value_preds
-
-        '''
-        print("disc rewards")
-        print(discount_rewards)
-        print("value preds")
-        print(value_preds)
-        print("advantages")
-        print(advantages)
-        print()
-        print()
-        '''
 
         critic_loss = advantages.pow(2).mean()
-        #actor_loss = -(advantages.detach() * action_log_probs).mean() - self.ent_coef * entropy.mean()
-        #actor_loss = -(advantages * action_log_probs).mean() - self.ent_coef * entropy.mean()
         actor_loss = -(advantages.detach() * action_log_probs).mean()
 
         return critic_loss, actor_loss
