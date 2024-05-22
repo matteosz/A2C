@@ -4,7 +4,7 @@ from tqdm import tqdm
 import random
 from torch.utils.tensorboard import SummaryWriter
 import gymnasium as gym
-from model import A2C
+from model import A2C, ENTROPY_CORRECTION
 import matplotlib.pyplot as plt
 import os
 from copy import deepcopy
@@ -161,7 +161,7 @@ def a2c(k=1, n=1, seed=2):
         masks_bootstrap_values[n - 1]  = estimated_values
 
         discount_rewards = model.get_discounted_r(ep_rewards, masks_end_of_ep, masks_bootstrap_values, mask_is_terminated)
-        critic_loss, actor_loss = model.get_losses(discount_rewards, ep_action_log_probs, ep_value_preds)
+        critic_loss, actor_loss = model.get_losses(discount_rewards, ep_action_log_probs, ep_value_preds, entropy)
 
         model.update_parameters(critic_loss, actor_loss)
 
@@ -269,7 +269,7 @@ NK = [(1, 1), (1, 6), (6, 1), (6, 6)]
 if __name__ == '__main__':
     for n, k in NK:
         print(f'Running A2C with {k} workers and {n} steps.')
-        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + '.png'
+        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + '.png'
         eval_info[2] = suffix
         for seed in SEEDS:
             print(f'Running A2C with seed {seed}...')

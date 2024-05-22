@@ -7,6 +7,9 @@ from typing import Tuple
 ACTOR_LR = 1e-5
 CRITIC_LR = 1e-3
 GAMMA = 0.99
+ENT_COEFF = 0.01
+
+ENTROPY_CORRECTION = True
 
 '''
 Actor network - policy function approximator (π)
@@ -74,6 +77,7 @@ class A2C(nn.Module):
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR,
         gamma=GAMMA,
+        entropy_coeff=ENT_COEFF
     ) -> None:
         super(A2C, self).__init__()
         self.input_size = input_size
@@ -89,6 +93,7 @@ class A2C(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
         self.gamma = gamma
+        self.entropy_coeff = entropy_coeff
 
     def forward(self, x: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
         x = torch.Tensor(x)
@@ -171,11 +176,15 @@ class A2C(nn.Module):
         discount_rewards: torch.Tensor,
         action_log_probs: torch.Tensor,
         value_preds: torch.Tensor,
+        entropy: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         advantages = discount_rewards.detach() - value_preds
 
         critic_loss = advantages.pow(2).mean()
         actor_loss = -(advantages.detach() * action_log_probs).mean()
+        if ENTROPY_CORRECTION:
+            with torch.no_grad():
+                actor_loss -= entropy.mean() * self.entropy_coeff
 
         return critic_loss, actor_loss
 
