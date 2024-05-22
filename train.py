@@ -17,7 +17,7 @@ EVAL_STEPS = int(2e4)
 LOG_STEPS = int(1e3)
 EVAL_EPISODES = 10
 
-STOCHASTIC = False
+STOCHASTIC = True
 
 gym.logger.set_level(40) # silence warnings
 #writer = SummaryWriter()
@@ -132,10 +132,9 @@ def a2c(k=1, n=1, seed=2):
             states, rewards, terminated, truncated, _ = envs_wrapper.step(actions.cpu().numpy())
 
             # Masking the rewards s.t. the reward is zeroed out with a probability of 0.9
-            if STOCHASTIC:
-                with torch.no_grad():
-                    mask = torch.rand(k) < .9
-                    rewards = rewards * mask
+            if STOCHASTIC:   
+                mask = np.random.choice([0, 1], size=(k,), p=[0.9, 0.1])
+                rewards = rewards * mask
 
             ep_value_preds[step] = state_value_preds.squeeze()
             ep_rewards[step] = torch.tensor(rewards, requires_grad=True)
@@ -270,7 +269,7 @@ NK = [(1, 1), (1, 6), (6, 1), (6, 6)]
 if __name__ == '__main__':
     for n, k in NK:
         print(f'Running A2C with {k} workers and {n} steps.')
-        suffix = f'_n{n}_k{k}' + ('stoch' if STOCHASTIC else '') + '.png'
+        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + '.png'
         eval_info[2] = suffix
         for seed in SEEDS:
             print(f'Running A2C with seed {seed}...')
