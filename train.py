@@ -4,14 +4,13 @@ from tqdm import tqdm
 import random
 from torch.utils.tensorboard import SummaryWriter
 import gymnasium as gym
-from model import A2C, ENTROPY_CORRECTION
+from model import A2C, ENTROPY_CORRECTION, CONTINUOUS
 import matplotlib.pyplot as plt
 import os
 from copy import deepcopy
 
 SEEDS = [2, 39, 242] 
 
-ENV_NAME = 'InvertedPendulum-v4'
 MAX_STEPS = int(5e5)
 EVAL_STEPS = int(2e4)
 LOG_STEPS = int(1e3)
@@ -22,7 +21,8 @@ LOG_STEPS = int(1e3)
 
 EVAL_EPISODES = 10
 
-STOCHASTIC = False
+STOCHASTIC = True
+ENV_NAME = 'InvertedPendulum-v4' if CONTINUOUS else 'CartPole-v1'
 
 gym.logger.set_level(40) # silence warnings
 #writer = SummaryWriter()
@@ -81,8 +81,11 @@ def evaluate(model, step, render=False):
 
         while not done:
             with torch.no_grad():
-                best_action = model.select_best_action(state[None, :])
-                state, reward, terminated, truncated, _ = env.step(best_action[0])
+                if CONTINUOUS:
+                    best_action = model.select_best_action_continuous(state[None, :])[0]
+                else:
+                    best_action = model.select_best_action(state[None, :])
+                state, reward, terminated, truncated, _ = env.step(best_action)
                 episode_rewards += reward
                 done = terminated or truncated
                 #env.render()
@@ -135,7 +138,10 @@ def a2c(k=1, n=1, seed=2):
 
         # Collect data
         for step in range(n):
-            actions, action_log_probs, state_value_preds, entropy = model.select_action(states)
+            if CONTINUOUS:
+                actions, action_log_probs, state_value_preds, entropy = model.select_action_continuous(states)
+            else:
+                actions, action_log_probs, state_value_preds, entropy = model.select_action(states)
             states, rewards, terminated, truncated, _ = envs_wrapper.step(actions.cpu().numpy())
 
             # Masking the rewards s.t. the reward is zeroed out with a probability of 0.9
@@ -145,7 +151,7 @@ def a2c(k=1, n=1, seed=2):
 
             ep_value_preds[step] = state_value_preds.squeeze()
             ep_rewards[step] = torch.tensor(rewards, requires_grad=True)
-            ep_action_log_probs[step] = action_log_probs
+            ep_action_log_probs[step] = action_log_probs.squeeze()
             
             for (i, (term, trunc)) in enumerate(zip(terminated, truncated)):
                 if term or trunc:
@@ -272,11 +278,11 @@ def create_plots():
     
     create_one_plot(logged_x_vals_eval, logged_eval_value_func_all_seeds, 'Evolution of the value function across evaluations', "Mean value of value function", "Mean value of value function", f'plots/plot_value_func_evaluation{eval_info[2]}')
 
-NK = [(1, 1), (1, 6), (6, 1), (6, 6)]
+NK = [(1, 1), (1, 6), (6, 1), (6, 6)] if not CONTINUOUS else [(1, 1), (6, 6)]
 if __name__ == '__main__':
     for n, k in NK:
         print(f'Running A2C with {k} workers and {n} steps.')
-        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + '.png'
+        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + ('_continuous' if CONTINUOUS else '') + '.png'
         eval_info[2] = suffix
         for seed in SEEDS:
             print(f'Running A2C with seed {seed}...')
