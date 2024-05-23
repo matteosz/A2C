@@ -24,6 +24,8 @@ class Actor(nn.Module):
             activation(),
             nn.Linear(hidden_size, output_size),
         )
+        self.log_std = nn.Parameter(torch.zeros(output_size))
+        self.register_parameter("log_std", self.log_std)
 
     '''
     Forward pass of the actor network
@@ -33,7 +35,7 @@ class Actor(nn.Module):
         torch.Tensor: Output tensor (π(S_t))
     '''
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.nn(x)
+        return self.nn(x), self.log_std
     
 
 '''
@@ -98,8 +100,8 @@ class A2C(nn.Module):
     def forward(self, x: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
         x = torch.Tensor(x)
         state_values = self.critic(x)
-        action_logits = self.actor(x)
-        return state_values, action_logits
+        action_mean, action_std_log = self.actor(x)
+        return state_values, action_mean, action_std_log
 
     '''
     Select an action given the current state
@@ -115,14 +117,55 @@ class A2C(nn.Module):
     def select_action(
         self, x: np.ndarray
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        state_values, action_logits = self.forward(x)
-        # Create a categorical distribution to sample actions from
-        action_pd = torch.distributions.Categorical(logits=action_logits)
-        actions = action_pd.sample()
-        # We return the log (as if we were doing softmax) of the probabilities to calculate the loss
-        action_log_probs = action_pd.log_prob(actions)
+        state_values, action_mean, action_std_log = self.forward(x)
+       
+        '''
+        print("mean")
+        print(action_mean)
+        print("mean item")
+        print(action_mean.item())
+        print("std")
+        print(action_std_log)
+        print()
+        '''
+        '''
+        sample = torch.randn(1)
 
-        return actions, action_log_probs, state_values, action_pd.entropy()
+        #calculate log prob
+        log_sqrt_2pi = 0.5 * torch.log(torch.tensor(2.0 * torch.pi))
+        action_log_prob = -0.5 * sample ** 2 - log_sqrt_2pi
+
+        action_std = torch.exp(action_std_log)
+        action = action_mean + action_std * sample
+        '''
+        action_std = torch.exp(action_std_log)
+        dist = torch.distributions.Normal(action_mean, action_std)
+
+        actions = dist.sample()
+
+        action_log_prob = dist.log_prob(actions)
+
+        action = torch.clamp(actions, min=-3, max=3)
+
+        '''
+        print("=============================================")
+        print("x")
+        print(x)
+        print("state_values")
+        print(state_values)
+        print("action_mean")
+        print(action_mean)
+        print("action")
+        print(action)
+        print("actions")
+        print(actions)
+        print("action_std")
+        print(action_std)
+        print()
+        print()
+        '''
+
+        return action, action_log_prob, state_values, dist.entropy()
     
     '''
     Select the best action given the current state.
@@ -133,8 +176,22 @@ class A2C(nn.Module):
         int: The best action index
     '''
     def select_best_action(self, x: np.ndarray) -> int:
-        _, action_logits = self.forward(x)
-        return torch.argmax(action_logits).item()
+        _, mean, _ = self.forward(x)
+
+        '''
+        print("=====================")
+        print("select_best_action")
+        print("x")
+        print(x)
+        print("mean")
+        print(mean)
+        print("mean squeeze")
+        print(mean.squeeze())
+        print()
+        print()
+        '''
+
+        return mean
     
     '''
     Forward pass of the critic network
