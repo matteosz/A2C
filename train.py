@@ -11,13 +11,18 @@ from copy import deepcopy
 
 SEEDS = [2, 39, 242] 
 
-ENV_NAME = 'CartPole-v1'
+ENV_NAME = 'InvertedPendulum-v4'
 MAX_STEPS = int(5e5)
 EVAL_STEPS = int(2e4)
 LOG_STEPS = int(1e3)
+
+#MAX_STEPS = int(5e5)
+#EVAL_STEPS = int(200)
+#LOG_STEPS = int(100)
+
 EVAL_EPISODES = 10
 
-STOCHASTIC = True
+STOCHASTIC = False
 
 gym.logger.set_level(40) # silence warnings
 #writer = SummaryWriter()
@@ -77,10 +82,10 @@ def evaluate(model, step, render=False):
         while not done:
             with torch.no_grad():
                 best_action = model.select_best_action(state[None, :])
-                state, reward, terminated, truncated, _ = env.step(best_action)
+                state, reward, terminated, truncated, _ = env.step(best_action[0])
                 episode_rewards += reward
                 done = terminated or truncated
-                env.render()
+                #env.render()
 
                 if i == EVAL_EPISODES - 1:
                     values.append(model.get_value(state).item())
@@ -106,8 +111,10 @@ def a2c(k=1, n=1, seed=2):
     total_steps = 0
 
     envs = gym.vector.make(ENV_NAME, num_envs=k)
-    num_actions, num_states = envs.single_action_space.n, envs.single_observation_space.shape[0]
-    model = A2C(num_states, num_actions, k, n)
+    num_states = envs.single_observation_space.shape[0]
+    #print(envs.single_action_space)
+    action_dim = 1
+    model = A2C(num_states, action_dim, k, n)
     envs_wrapper = gym.wrappers.RecordEpisodeStatistics(envs, deque_size=k*n_updates)
 
     states, _ = envs_wrapper.reset(seed=seed)
