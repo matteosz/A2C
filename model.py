@@ -1,3 +1,4 @@
+# model.py
 import torch
 import numpy as np
 from torch import nn, optim
@@ -109,7 +110,7 @@ class A2C(nn.Module):
             action_mean, action_std_log = self.actor(x)
             return state_values, action_mean, action_std_log
         else:
-            action_logits = self.actor(x)
+            action_logits, _ = self.actor(x)
             return state_values, action_logits, None
 
 
@@ -161,7 +162,7 @@ class A2C(nn.Module):
         int: The best action index
     '''
     def select_best_action(self, x: np.ndarray) -> int:
-        _, action_logits = self.forward(x)
+        _, action_logits, _ = self.forward(x)
         return torch.argmax(action_logits).item()
 
     def select_best_action_continuous(self, x: np.ndarray) -> torch.Tensor:

@@ -1,31 +1,28 @@
+# train.py
+# Code inspired from this gymnasium tutorial: https://gymnasium.farama.org/tutorials/gymnasium_basics/vector_envs_tutorial/
 import numpy as np
 import torch
 from tqdm import tqdm
 import random
-from torch.utils.tensorboard import SummaryWriter
 import gymnasium as gym
 from model import A2C, ENTROPY_CORRECTION, CONTINUOUS
 import matplotlib.pyplot as plt
 import os
+import json
 from copy import deepcopy
 
 SEEDS = [2, 39, 242] 
 
-MAX_STEPS = int(5e5)
-EVAL_STEPS = int(2e4)
-LOG_STEPS = int(1e3)
-
-#MAX_STEPS = int(5e5)
-#EVAL_STEPS = int(200)
-#LOG_STEPS = int(100)
-
+MAX_STEPS = 500000
+EVAL_STEPS = 20000
+LOG_STEPS = 1000
 EVAL_EPISODES = 10
 
 STOCHASTIC = True
 ENV_NAME = 'InvertedPendulum-v4' if CONTINUOUS else 'CartPole-v1'
+ONLY_PLOT = True
 
 gym.logger.set_level(40) # silence warnings
-#writer = SummaryWriter()
 
 logged_actor_losses_all_seeds = []
 logged_critic_losses_all_seeds = []
@@ -88,7 +85,8 @@ def evaluate(model, step, render=False):
                 state, reward, terminated, truncated, _ = env.step(best_action)
                 episode_rewards += reward
                 done = terminated or truncated
-                #env.render()
+                if render:
+                    env.render()
 
                 if i == EVAL_EPISODES - 1:
                     values.append(model.get_value(state).item())
@@ -96,15 +94,11 @@ def evaluate(model, step, render=False):
     env.close()
     mean_value = episode_rewards / EVAL_EPISODES
     print(f'Step: {step}, Average evaluation reward: {mean_value:.2f}')
-    #writer.add_scalar('Evaluation/Mean_Value', mean_value, step)
-
-    logged_eval_value_func_curr_seed.append(np.mean(values))
+ 
+    logged_eval_value_func_curr_seed.append(float(np.mean(values)))
     logged_episodic_returns_eval_curr_seed.append(mean_value)
 
     plot_value_function(list(range(len(values))), values)
-
-    #for i, values in enumerate(values):
-    #    writer.add_scalar('Evaluation/Value_Function', values, i)
 
     eval_info[1] += 1
 
@@ -115,8 +109,7 @@ def a2c(k=1, n=1, seed=2):
 
     envs = gym.vector.make(ENV_NAME, num_envs=k)
     num_states = envs.single_observation_space.shape[0]
-    #print(envs.single_action_space)
-    action_dim = 1
+    action_dim = 1 if CONTINUOUS else envs.single_action_space.n
     model = A2C(num_states, action_dim, k, n)
     envs_wrapper = gym.wrappers.RecordEpisodeStatistics(envs, deque_size=k*n_updates)
 
@@ -190,9 +183,6 @@ def a2c(k=1, n=1, seed=2):
         # Logging and evaluation
         if total_steps % LOG_STEPS == 0 or skipped_log:
             print(f'Step: {total_steps}, Critic Loss: {np.mean(critic_losses)}, Actor Loss: {np.mean(actor_losses)}, Entropy: {np.mean(entropies)}')
-            #writer.add_scalar('Train/Loss/Critic', np.mean(critic_losses), total_steps)
-            #writer.add_scalar('Train/Loss/Actor', np.mean(actor_losses), total_steps)
-            #writer.add_scalar('Train/Loss/Entropy', np.mean(entropies), total_steps)
 
             avg_reward = .0
             if len(envs_wrapper.return_queue) < k:
@@ -201,12 +191,11 @@ def a2c(k=1, n=1, seed=2):
                 avg_reward = np.array(envs_wrapper.return_queue)[-k:].mean()
                 
             print(f'Step: {total_steps}, Average reward: {avg_reward}')
-            #writer.add_scalar('Train/Average_Reward', avg_reward, total_steps)
 
-            logged_actor_losses_curr_seed.append(actor_losses[-1])
-            logged_critic_losses_curr_seed.append(critic_losses[-1])
-            logged_entropies_curr_seed.append(entropies[-1])
-            logged_episodic_returns_train_curr_seed.append(avg_reward)
+            logged_actor_losses_curr_seed.append(float(actor_losses[-1]))
+            logged_critic_losses_curr_seed.append(float(critic_losses[-1]))
+            logged_entropies_curr_seed.append(float(entropies[-1]))
+            logged_episodic_returns_train_curr_seed.append(float(avg_reward))
 
             if are_logged_x_vals_train_collected:
                 logged_x_vals_train.append(total_steps)
@@ -234,7 +223,7 @@ def a2c(k=1, n=1, seed=2):
 
     eval_info[1] = 0
 
-def create_one_plot(x_vals, data_seeds, title, label, ylabel, path):
+def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max=True):
     plt.figure(figsize=(10, 6))
 
     min_values = []
@@ -248,10 +237,15 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path):
         avg_val = sum([data_seed[i] for data_seed in data_seeds]) / len(data_seeds)
         avg_values.append(avg_val)
 
-    markers = ['o', 's', '^']
-    for i, (data_seed, marker) in enumerate(zip(data_seeds, markers)):
-        plt.plot(x_vals, data_seed, label=label+f' (seed {SEEDS[i]})', marker=marker)
-    plt.plot(x_vals, avg_values, label=label+' (average)', marker='x')
+    if not only_min_max:
+        markers = ['o', 's', '^']
+        for i, (data_seed, marker) in enumerate(zip(data_seeds, markers)):
+            plt.plot(x_vals, data_seed, label=label+f' (seed {SEEDS[i]})', marker=marker)
+    else:
+        plt.plot(x_vals, min_values, label=label+' (min)')
+        plt.plot(x_vals, max_values, label=label+' (max)')
+
+    plt.plot(x_vals, avg_values, label=label+' (average)')
 
     plt.title(title)
     plt.xlabel('Steps')
@@ -265,40 +259,79 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path):
     plt.savefig(path)
     plt.close()
 
-def create_plots():
+def create_plots(save_to_json=False, load_path=None):
     if not os.path.exists('plots'):
         os.makedirs('plots')
+
+    if load_path:
+        with open(load_path, 'r') as f:
+            data = json.load(f)
+            logged_x_vals_train = data['x_vals_train']
+            logged_x_vals_eval = data['x_vals_eval']
+            logged_actor_losses_all_seeds = data['actor_losses']
+            logged_critic_losses_all_seeds = data['critic_losses']
+            logged_entropies_all_seeds = data['entropies']
+            logged_episodic_returns_train_all_seeds = data['episodic_returns_train']
+            logged_episodic_returns_eval_all_seeds = data['episodic_returns_eval']
+            logged_eval_value_func_all_seeds = data['eval_value_func']
 
     create_one_plot(logged_x_vals_train, logged_actor_losses_all_seeds, 'Actor loss throughout training', "Actor loss", "Loss", f'plots/plot_actor_loss{eval_info[2]}')
     create_one_plot(logged_x_vals_train, logged_critic_losses_all_seeds, 'Critic loss throughout training', "Critic loss", "Loss", f'plots/plot_critic_loss{eval_info[2]}')
     create_one_plot(logged_x_vals_train, logged_entropies_all_seeds, 'Entropy throughout training', "Entropy", "Entropy", f'plots/plot_entropy{eval_info[2]}')
-
+    
     create_one_plot(logged_x_vals_train, logged_episodic_returns_train_all_seeds, 'Average undiscounted trajectory return throughout training', "Return", "Return", f'plots/plot_return_training{eval_info[2]}')
     create_one_plot(logged_x_vals_eval, logged_episodic_returns_eval_all_seeds, 'Average undiscounted trajectory return throughout evaluation', "Return", "Return", f'plots/plot_return_evaluation{eval_info[2]}')
-    
     create_one_plot(logged_x_vals_eval, logged_eval_value_func_all_seeds, 'Evolution of the value function across evaluations', "Mean value of value function", "Mean value of value function", f'plots/plot_value_func_evaluation{eval_info[2]}')
+
+    if save_to_json:
+        with open(f'plots/data{eval_info[2][:-4]}.json', 'w') as f:
+            data = {
+                'x_vals_train': logged_x_vals_train,
+                'x_vals_eval': logged_x_vals_eval,
+                'actor_losses': logged_actor_losses_all_seeds,
+                'critic_losses': logged_critic_losses_all_seeds,
+                'entropies': logged_entropies_all_seeds,
+                'episodic_returns_train': logged_episodic_returns_train_all_seeds,
+                'episodic_returns_eval': logged_episodic_returns_eval_all_seeds,
+                'eval_value_func': logged_eval_value_func_all_seeds,
+            }
+            json.dump(data, f)
 
 NK = [(1, 1), (1, 6), (6, 1), (6, 6)] if not CONTINUOUS else [(1, 1), (6, 6)]
 if __name__ == '__main__':
-    for n, k in NK:
-        print(f'Running A2C with {k} workers and {n} steps.')
-        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + ('_continuous' if CONTINUOUS else '') + '.png'
-        eval_info[2] = suffix
-        for seed in SEEDS:
-            print(f'Running A2C with seed {seed}...')
-            eval_info[0] = seed
-            set_seed(seed)
-            a2c(k=k, n=n, seed=seed)
-        create_plots()
+    if not ONLY_PLOT:
+        for n, k in NK:
+            print(f'Running A2C with {k} workers and {n} steps.')
+            suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + ('_continuous' if CONTINUOUS else '') + '.png'
+            eval_info[2] = suffix
+            for seed in SEEDS:
+                print(f'Running A2C with seed {seed}...')
+                eval_info[0] = seed
+                set_seed(seed)
+                a2c(k=k, n=n, seed=seed)
+            create_plots()
 
-        logged_actor_losses_all_seeds.clear()
-        logged_critic_losses_all_seeds.clear()
-        logged_entropies_all_seeds.clear()
-        logged_episodic_returns_train_all_seeds.clear()
-        logged_episodic_returns_eval_all_seeds.clear()
-        logged_eval_value_func_all_seeds.clear()
-        logged_x_vals_train.clear()
-        logged_x_vals_eval.clear()
+            logged_actor_losses_all_seeds.clear()
+            logged_critic_losses_all_seeds.clear()
+            logged_entropies_all_seeds.clear()
+            logged_episodic_returns_train_all_seeds.clear()
+            logged_episodic_returns_eval_all_seeds.clear()
+            logged_eval_value_func_all_seeds.clear()
+            logged_x_vals_train.clear()
+            logged_x_vals_eval.clear()
+    else:
+        load_paths = [
+            'plots/data_n1_k1.json',
+            'plots/data_n1_k1_stoch_entropy.json', 
+            'plots/data_n1_k1_stoch_entropy_continuous.json', 
 
-    #writer.close()
+            'plots/data_n1_k6_stoch_entropy.json', 
+            'plots/data_n6_k1_stoch_entropy.json', 
+
+            'plots/data_n6_k6_stoch_entropy.json',
+            'plots/data_n6_k6_stoch_entropy_continuous.json',
+        ]
+        for path in load_paths:
+            eval_info[2] = path[10:-5] + '_2'
+            create_plots(load_path=path)
     
