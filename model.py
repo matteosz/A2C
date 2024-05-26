@@ -10,8 +10,8 @@ CRITIC_LR = 1e-3
 GAMMA = 0.99
 ENT_COEFF = 0.01
 
-CONTINUOUS = True
-ENTROPY_CORRECTION = True
+CONTINUOUS = False
+ENTROPY_CORRECTION = False
 
 '''
 Actor network - policy function approximator (π)

@@ -223,7 +223,7 @@ def a2c(k=1, n=1, seed=2):
 
     eval_info[1] = 0
 
-def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max=True):
+def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max=True, explicit_avg=False):
     plt.figure(figsize=(10, 6))
 
     min_values = []
@@ -241,59 +241,123 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max
         markers = ['o', 's', '^']
         for i, (data_seed, marker) in enumerate(zip(data_seeds, markers)):
             plt.plot(x_vals, data_seed, label=label+f' (seed {SEEDS[i]})', marker=marker)
+    
+    plt.plot(x_vals, min_values, label=label+' (min)')
+    plt.plot(x_vals, max_values, label=label+' (max)')
+    if not explicit_avg:
+        plt.fill_between(x_vals, min_values, avg_values, color='gray', alpha=0.3)
+        plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha=0.3)
     else:
-        plt.plot(x_vals, min_values, label=label+' (min)')
-        plt.plot(x_vals, max_values, label=label+' (max)')
-
-    plt.plot(x_vals, avg_values, label=label+' (average)')
+        plt.plot(x_vals, avg_values, label=label+' (average)')
 
     plt.title(title)
+    plt.grid()
     plt.xlabel('Steps')
     plt.ylabel(ylabel)
 
     plt.legend()
 
-    plt.fill_between(x_vals, avg_values, min_values, color='gray', alpha=0.3)
-    plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha=0.3)
-
     plt.savefig(path)
     plt.close()
 
-def create_plots(save_to_json=False, load_path=None):
+def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labels, ylabel, path):
+    plt.figure(figsize=(10, 6))
+
+    def plot_data(x_vals, data_seeds, label, alpha=0.3, plot_only_avg=True):
+        min_values = []
+        max_values = []
+        avg_values = []
+        for i in range(len(data_seeds[0])):
+            min_val = min([data_seed[i] for data_seed in data_seeds])
+            min_values.append(min_val)
+            max_val = max([data_seed[i] for data_seed in data_seeds])
+            max_values.append(max_val)
+            avg_val = sum([data_seed[i] for data_seed in data_seeds]) / len(data_seeds)
+            avg_values.append(avg_val)
+
+        if not plot_only_avg:
+            plt.plot(x_vals, min_values, label=label + ' (min)')
+            plt.plot(x_vals, max_values, label=label + ' (max)')
+            plt.fill_between(x_vals, min_values, avg_values, color='gray', alpha=alpha)
+            plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha=alpha)
+        else:
+            plt.plot(x_vals, avg_values, label=label + ' (average)')
+
+    plot_data(x_vals1, data_seeds1, labels[0])
+    plot_data(x_vals2, data_seeds2, labels[1], alpha=0.5)
+
+    plt.title(title)
+    plt.grid()
+    plt.xlabel('Steps')
+    plt.ylabel(ylabel)
+    plt.legend()
+    plt.savefig(path)
+    plt.close()
+
+def create_plots(save_to_json=False, load_path=None, combined_plots=True):
     if not os.path.exists('plots'):
         os.makedirs('plots')
 
     if load_path:
         with open(load_path, 'r') as f:
             data = json.load(f)
-            logged_x_vals_train = data['x_vals_train']
-            logged_x_vals_eval = data['x_vals_eval']
-            logged_actor_losses_all_seeds = data['actor_losses']
-            logged_critic_losses_all_seeds = data['critic_losses']
-            logged_entropies_all_seeds = data['entropies']
-            logged_episodic_returns_train_all_seeds = data['episodic_returns_train']
-            logged_episodic_returns_eval_all_seeds = data['episodic_returns_eval']
-            logged_eval_value_func_all_seeds = data['eval_value_func']
+            x_vals_train = data['x_vals_train']
+            x_vals_eval = data['x_vals_eval']
+            actor_losses_all_seeds = data['actor_losses']
+            critic_losses_all_seeds = data['critic_losses']
+            entropies_all_seeds = data['entropies']
+            episodic_returns_train_all_seeds = data['episodic_returns_train']
+            episodic_returns_eval_all_seeds = data['episodic_returns_eval']
+            eval_value_func_all_seeds = data['eval_value_func']
+    else:
+        x_vals_train = logged_x_vals_train
+        x_vals_eval = logged_x_vals_eval
+        actor_losses_all_seeds = logged_actor_losses_all_seeds
+        critic_losses_all_seeds = logged_critic_losses_all_seeds
+        entropies_all_seeds = logged_entropies_all_seeds
+        episodic_returns_train_all_seeds = logged_episodic_returns_train_all_seeds
+        episodic_returns_eval_all_seeds = logged_episodic_returns_eval_all_seeds
+        eval_value_func_all_seeds = logged_eval_value_func_all_seeds
 
-    create_one_plot(logged_x_vals_train, logged_actor_losses_all_seeds, 'Actor loss throughout training', "Actor loss", "Loss", f'plots/plot_actor_loss{eval_info[2]}')
-    create_one_plot(logged_x_vals_train, logged_critic_losses_all_seeds, 'Critic loss throughout training', "Critic loss", "Loss", f'plots/plot_critic_loss{eval_info[2]}')
-    create_one_plot(logged_x_vals_train, logged_entropies_all_seeds, 'Entropy throughout training', "Entropy", "Entropy", f'plots/plot_entropy{eval_info[2]}')
+
+    if combined_plots:
+        create_combined_plot(
+            x_vals_train, episodic_returns_train_all_seeds, 
+            x_vals_eval, episodic_returns_eval_all_seeds, 
+            'Average Undiscounted Trajectory Return', 
+            ["Train Return", "Eval Return"], 
+            "Return", 
+            f'plots/plot_return_combined{eval_info[2]}'
+        )
+
+        create_combined_plot(
+            x_vals_train, actor_losses_all_seeds, 
+            x_vals_train, critic_losses_all_seeds, 
+            'Loss Throughout Training', 
+            ["Actor Loss", "Critic Loss"], 
+            "Loss", 
+            f'plots/plot_loss_combined{eval_info[2]}'
+        )
+    else:
+        create_one_plot(x_vals_train, actor_losses_all_seeds, 'Actor loss throughout training', "Actor loss", "Loss", f'plots/plot_actor_loss{eval_info[2]}')
+        create_one_plot(x_vals_train, critic_losses_all_seeds, 'Critic loss throughout training', "Critic loss", "Loss", f'plots/plot_critic_loss{eval_info[2]}')
+        create_one_plot(x_vals_train, episodic_returns_train_all_seeds, 'Average undiscounted trajectory return throughout training', "Return", "Return", f'plots/plot_return_training{eval_info[2]}')
+        create_one_plot(x_vals_eval, episodic_returns_eval_all_seeds, 'Average undiscounted trajectory return throughout evaluation', "Return", "Return", f'plots/plot_return_evaluation{eval_info[2]}')
+   
+    create_one_plot(x_vals_train, entropies_all_seeds, 'Entropy throughout training', "Entropy", "Entropy", f'plots/plot_entropy{eval_info[2]}')
+    create_one_plot(x_vals_eval, eval_value_func_all_seeds, 'Evolution of the value function across evaluations', "Mean value of value function", "Mean value of value function", f'plots/plot_value_func_evaluation{eval_info[2]}')
     
-    create_one_plot(logged_x_vals_train, logged_episodic_returns_train_all_seeds, 'Average undiscounted trajectory return throughout training', "Return", "Return", f'plots/plot_return_training{eval_info[2]}')
-    create_one_plot(logged_x_vals_eval, logged_episodic_returns_eval_all_seeds, 'Average undiscounted trajectory return throughout evaluation', "Return", "Return", f'plots/plot_return_evaluation{eval_info[2]}')
-    create_one_plot(logged_x_vals_eval, logged_eval_value_func_all_seeds, 'Evolution of the value function across evaluations', "Mean value of value function", "Mean value of value function", f'plots/plot_value_func_evaluation{eval_info[2]}')
-
     if save_to_json:
         with open(f'plots/data{eval_info[2][:-4]}.json', 'w') as f:
             data = {
-                'x_vals_train': logged_x_vals_train,
-                'x_vals_eval': logged_x_vals_eval,
-                'actor_losses': logged_actor_losses_all_seeds,
-                'critic_losses': logged_critic_losses_all_seeds,
-                'entropies': logged_entropies_all_seeds,
-                'episodic_returns_train': logged_episodic_returns_train_all_seeds,
-                'episodic_returns_eval': logged_episodic_returns_eval_all_seeds,
-                'eval_value_func': logged_eval_value_func_all_seeds,
+                'x_vals_train': x_vals_train,
+                'x_vals_eval': x_vals_eval,
+                'actor_losses': actor_losses_all_seeds,
+                'critic_losses': critic_losses_all_seeds,
+                'entropies': entropies_all_seeds,
+                'episodic_returns_train': episodic_returns_train_all_seeds,
+                'episodic_returns_eval': episodic_returns_eval_all_seeds,
+                'eval_value_func': eval_value_func_all_seeds,
             }
             json.dump(data, f)
 
@@ -321,17 +385,18 @@ if __name__ == '__main__':
             logged_x_vals_eval.clear()
     else:
         load_paths = [
-            'plots/data_n1_k1.json',
-            'plots/data_n1_k1_stoch_entropy.json', 
-            'plots/data_n1_k1_stoch_entropy_continuous.json', 
+            #'plots/data_n1_k1.json',
+            #'plots/data_n1_k1_stoch_entropy.json', 
+            #'plots/data_n1_k1_stoch_entropy_continuous.json', 
 
             'plots/data_n1_k6_stoch_entropy.json', 
-            'plots/data_n6_k1_stoch_entropy.json', 
+            #'plots/data_n1_k6_stoch.json', 
+            #'plots/data_n6_k1_stoch_entropy.json', 
 
-            'plots/data_n6_k6_stoch_entropy.json',
-            'plots/data_n6_k6_stoch_entropy_continuous.json',
+            #'plots/data_n6_k6_stoch_entropy.json',
+            #'plots/data_n6_k6_stoch_entropy_continuous.json',
         ]
         for path in load_paths:
-            eval_info[2] = path[10:-5] + '_2'
+            eval_info[2] = path[10:-5] + '_3'
             create_plots(load_path=path)
     
