@@ -5,7 +5,8 @@ import torch
 from tqdm import tqdm
 import random
 import gymnasium as gym
-from model import A2C, ENTROPY_CORRECTION, CONTINUOUS
+gym.logger.set_level(40) # silence warnings
+from model import A2C, CONTINUOUS, STOCHASTIC, ENV_NAME
 import matplotlib.pyplot as plt
 import os
 import json
@@ -13,17 +14,13 @@ from copy import deepcopy
 
 SEEDS = [2, 39, 242] 
 
+# Constants for steps
 MAX_STEPS = 500000
 EVAL_STEPS = 20000
 LOG_STEPS = 1000
 EVAL_EPISODES = 10
 
-STOCHASTIC = True
-ENV_NAME = 'InvertedPendulum-v4' if CONTINUOUS else 'CartPole-v1'
-ONLY_PLOT = True
-
-gym.logger.set_level(40) # silence warnings
-
+# Logging variables (used for plotting)
 logged_actor_losses_all_seeds = []
 logged_critic_losses_all_seeds = []
 logged_entropies_all_seeds = []
@@ -118,7 +115,7 @@ def a2c(k=1, n=1, seed=2):
     are_logged_x_vals_eval_collected = len(logged_x_vals_eval) == 0
     are_logged_x_vals_train_collected = len(logged_x_vals_train) == 0
 
-    for _ in tqdm(range(1, n_updates + 1)):
+    for _ in tqdm(range(n_updates)):
         ep_value_preds = torch.zeros(n, k)
         ep_rewards = torch.zeros(n, k)
         ep_action_log_probs = torch.zeros(n, k)
@@ -140,7 +137,7 @@ def a2c(k=1, n=1, seed=2):
             # Masking the rewards s.t. the reward is zeroed out with a probability of 0.9
             if STOCHASTIC:   
                 mask = np.random.choice([0, 1], size=(k,), p=[0.9, 0.1])
-                rewards = rewards * mask
+                rewards *= mask
 
             ep_value_preds[step] = state_value_preds.squeeze()
             ep_rewards[step] = torch.tensor(rewards, requires_grad=True)
@@ -264,7 +261,7 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max
 def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labels, ylabel, path):
     plt.figure(figsize=(10, 6))
 
-    def plot_data(x_vals, data_seeds, label, alpha=0.3, colors=['lightgray', 'orange']):
+    def plot_data(x_vals, data_seeds, label, colors=['lightgray', 'orange']):
         min_values = []
         max_values = []
         avg_values = []
@@ -361,39 +358,22 @@ def create_plots(save_to_json=False, load_path=None, combined_plots=True):
 
 NK = [(1, 1), (1, 6), (6, 1), (6, 6)] if not CONTINUOUS else [(1, 1), (6, 6)]
 if __name__ == '__main__':
-    if not ONLY_PLOT:
-        for n, k in NK:
-            print(f'Running A2C with {k} workers and {n} steps.')
-            suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_entropy' if ENTROPY_CORRECTION else '') + ('_continuous' if CONTINUOUS else '') + '.png'
-            eval_info[2] = suffix
-            for seed in SEEDS:
-                print(f'Running A2C with seed {seed}...')
-                eval_info[0] = seed
-                set_seed(seed)
-                a2c(k=k, n=n, seed=seed)
-            create_plots()
+    for n, k in NK:
+        print(f'Running A2C with {k} workers and {n} steps.')
+        suffix = f'_n{n}_k{k}' + ('_stoch' if STOCHASTIC else '') + ('_continuous' if CONTINUOUS else '') + '.png'
+        eval_info[2] = suffix
+        for seed in SEEDS:
+            print(f'Running A2C with seed {seed}...')
+            eval_info[0] = seed
+            set_seed(seed)
+            a2c(k=k, n=n, seed=seed)
+        create_plots()
 
-            logged_actor_losses_all_seeds.clear()
-            logged_critic_losses_all_seeds.clear()
-            logged_entropies_all_seeds.clear()
-            logged_episodic_returns_train_all_seeds.clear()
-            logged_episodic_returns_eval_all_seeds.clear()
-            logged_eval_value_func_all_seeds.clear()
-            logged_x_vals_train.clear()
-            logged_x_vals_eval.clear()
-    else:
-        load_paths = [
-            'plots/data_n1_k1.json',
-            'plots/data_n1_k1_stoch_entropy.json', 
-            'plots/data_n1_k1_stoch_entropy_continuous.json', 
-
-            'plots/data_n1_k6_stoch_entropy.json', 
-            'plots/data_n6_k1_stoch_entropy.json', 
-
-            'plots/data_n6_k6_stoch_entropy.json',
-            'plots/data_n6_k6_stoch_entropy_continuous.json',
-        ]
-        for path in load_paths:
-            eval_info[2] = path[10:-5] + '_7'
-            create_plots(load_path=path)
-    
+        logged_actor_losses_all_seeds.clear()
+        logged_critic_losses_all_seeds.clear()
+        logged_entropies_all_seeds.clear()
+        logged_episodic_returns_train_all_seeds.clear()
+        logged_episodic_returns_eval_all_seeds.clear()
+        logged_eval_value_func_all_seeds.clear()
+        logged_x_vals_train.clear()
+        logged_x_vals_eval.clear()

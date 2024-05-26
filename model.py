@@ -4,14 +4,17 @@ import numpy as np
 from torch import nn, optim
 from typing import Tuple
 
+# Flags
+CONTINUOUS = False
+STOCHASTIC = True
+ENV_NAME = 'InvertedPendulum-v4' if CONTINUOUS else 'CartPole-v1'
+
 # Default hyperparameters
 ACTOR_LR = 1e-5
 CRITIC_LR = 1e-3
 GAMMA = 0.99
 ENT_COEFF = 0.01
 
-CONTINUOUS = False
-ENTROPY_CORRECTION = False
 
 '''
 Actor network - policy function approximator (π)
@@ -95,7 +98,7 @@ class A2C(nn.Module):
         self.actor = Actor(input_size, output_size, hidden_size, activation)
         self.critic = Critic(input_size, hidden_size, activation)
 
-        if CONTINUOUS and k == 6 and n == 6:
+        if CONTINUOUS and k == 6 and n == 6: # change lr for continuous with 6 workers and 6 steps
             actor_lr = 3e-4
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
@@ -146,9 +149,7 @@ class A2C(nn.Module):
         dist = torch.distributions.Normal(action_mean, action_std)
 
         actions = dist.sample()
-
         action_log_prob = dist.log_prob(actions)
-
         action = torch.clamp(actions, min=-3, max=3)
 
         return action, action_log_prob, state_values, dist.entropy()
@@ -215,7 +216,7 @@ class A2C(nn.Module):
 
         critic_loss = advantages.pow(2).mean()
         actor_loss = -(advantages.detach() * action_log_probs).mean()
-        if ENTROPY_CORRECTION:
+        if STOCHASTIC: # Apply entropy regularization when stochastic
             with torch.no_grad():
                 actor_loss -= entropy.mean() * self.entropy_coeff
 
