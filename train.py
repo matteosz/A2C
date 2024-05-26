@@ -249,6 +249,7 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max
         plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha=0.3)
     else:
         plt.plot(x_vals, avg_values, label=label+' (average)')
+        plt.fill_between(x_vals, min_values, max_values, color='gray', alpha=0.3)
 
     plt.title(title)
     plt.grid()
@@ -263,7 +264,7 @@ def create_one_plot(x_vals, data_seeds, title, label, ylabel, path, only_min_max
 def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labels, ylabel, path):
     plt.figure(figsize=(10, 6))
 
-    def plot_data(x_vals, data_seeds, label, alpha=0.3, plot_only_avg=True):
+    def plot_data(x_vals, data_seeds, label, alpha=0.3, colors=['lightgray', 'orange']):
         min_values = []
         max_values = []
         avg_values = []
@@ -275,16 +276,13 @@ def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labe
             avg_val = sum([data_seed[i] for data_seed in data_seeds]) / len(data_seeds)
             avg_values.append(avg_val)
 
-        if not plot_only_avg:
-            plt.plot(x_vals, min_values, label=label + ' (min)')
-            plt.plot(x_vals, max_values, label=label + ' (max)')
-            plt.fill_between(x_vals, min_values, avg_values, color='gray', alpha=alpha)
-            plt.fill_between(x_vals, avg_values, max_values, color='gray', alpha=alpha)
-        else:
-            plt.plot(x_vals, avg_values, label=label + ' (average)')
+        plt.plot(x_vals, min_values, label=label + ' (min & max)', color=colors[0])
+        plt.plot(x_vals, max_values, color=colors[0])
+        plt.fill_between(x_vals, min_values, max_values, color=colors[0])
+        plt.plot(x_vals, avg_values, label=label + ' (average)', color=colors[1])
 
     plot_data(x_vals1, data_seeds1, labels[0])
-    plot_data(x_vals2, data_seeds2, labels[1], alpha=0.5)
+    plot_data(x_vals2, data_seeds2, labels[1], alpha=0.5, colors=['gray', 'blue'])
 
     plt.title(title)
     plt.grid()
@@ -385,18 +383,17 @@ if __name__ == '__main__':
             logged_x_vals_eval.clear()
     else:
         load_paths = [
-            #'plots/data_n1_k1.json',
-            #'plots/data_n1_k1_stoch_entropy.json', 
-            #'plots/data_n1_k1_stoch_entropy_continuous.json', 
+            'plots/data_n1_k1.json',
+            'plots/data_n1_k1_stoch_entropy.json', 
+            'plots/data_n1_k1_stoch_entropy_continuous.json', 
 
             'plots/data_n1_k6_stoch_entropy.json', 
-            #'plots/data_n1_k6_stoch.json', 
-            #'plots/data_n6_k1_stoch_entropy.json', 
+            'plots/data_n6_k1_stoch_entropy.json', 
 
-            #'plots/data_n6_k6_stoch_entropy.json',
-            #'plots/data_n6_k6_stoch_entropy_continuous.json',
+            'plots/data_n6_k6_stoch_entropy.json',
+            'plots/data_n6_k6_stoch_entropy_continuous.json',
         ]
         for path in load_paths:
-            eval_info[2] = path[10:-5] + '_3'
+            eval_info[2] = path[10:-5] + '_7'
             create_plots(load_path=path)
     
