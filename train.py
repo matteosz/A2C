@@ -12,7 +12,8 @@ import os
 import json
 from copy import deepcopy
 
-SEEDS = [2, 39, 242] 
+SEEDS = [2, 39, 242] # Seeds for reproducibility
+NK = [(1, 1), (1, 6), (6, 1), (6, 6)] if not CONTINUOUS else [(1, 1), (6, 6)] # Number of steps and workers (agent configurations)
 
 # Constants for steps
 MAX_STEPS = 500000
@@ -356,7 +357,6 @@ def create_plots(save_to_json=False, load_path=None, combined_plots=True):
             }
             json.dump(data, f)
 
-NK = [(1, 1), (1, 6), (6, 1), (6, 6)] if not CONTINUOUS else [(1, 1), (6, 6)]
 if __name__ == '__main__':
     for n, k in NK:
         print(f'Running A2C with {k} workers and {n} steps.')

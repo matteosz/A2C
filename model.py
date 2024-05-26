@@ -5,7 +5,7 @@ from torch import nn, optim
 from typing import Tuple
 
 # Flags
-CONTINUOUS = False
+CONTINUOUS = True
 STOCHASTIC = True
 ENV_NAME = 'InvertedPendulum-v4' if CONTINUOUS else 'CartPole-v1'
 
