@@ -60,6 +60,7 @@ def plot_value_function(x_vals, y_vals):
     plt.title("Value function(seed" + str(eval_info[0]) + ", " + "eval nr." + str(eval_info[1]) + ")")
     plt.xlabel('Steps')
     plt.ylabel('Value function')
+    plt.grid()
 
     path = 'plots/evaluations/plot_value_func_evaluation_seed' + str(eval_info[0]) + "_eval_nr" + str(eval_info[1]) + '.png'
     plt.savefig(path)
@@ -280,7 +281,7 @@ def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labe
         plt.plot(x_vals, avg_values, label=label + ' (average)', color=colors[1])
 
     plot_data(x_vals1, data_seeds1, labels[0])
-    plot_data(x_vals2, data_seeds2, labels[1], alpha=0.5, colors=['gray', 'blue'])
+    plot_data(x_vals2, data_seeds2, labels[1], colors=['gray', 'blue'])
 
     plt.title(title)
     plt.grid()
@@ -290,7 +291,7 @@ def create_combined_plot(x_vals1, data_seeds1, x_vals2, data_seeds2, title, labe
     plt.savefig(path)
     plt.close()
 
-def create_plots(save_to_json=False, load_path=None, combined_plots=True):
+def create_plots(save_to_json=False, load_path=None, combined_plots=False):
     if not os.path.exists('plots'):
         os.makedirs('plots')
 
